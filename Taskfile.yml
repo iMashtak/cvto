@@ -1,0 +1,12 @@
+version: '3'
+
+tasks:
+
+  build:
+    cmds:
+      - cargo test
+      - cargo build --release
+  
+  publish-local:
+    cmds:
+      - cp target/release/cvto ~/.local/bin

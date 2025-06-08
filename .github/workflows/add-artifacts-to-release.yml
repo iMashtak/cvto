@@ -1,0 +1,92 @@
+name: Add artifacts to release
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build-release:
+    name: Release for ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: armv7-unknown-linux-musleabi
+            os: ubuntu-latest
+            cross: true
+          - target: riscv64gc-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust 1.87.0 with toolchain ${{matrix.target}}
+        uses: dtolnay/rust-toolchain@1.87.0
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Build using Cross
+        if: ${{ matrix.cross }}
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross.git --locked --rev 085092ca
+          cross build --release --target ${{ matrix.target }}
+
+      - name: Build using Cargo
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create artifact directory
+        shell: bash
+        run: |
+          directory=cvto-${{ matrix.target }}
+          mkdir $directory
+          cp README.md LICENSE NOTICE $directory
+          if [ -f target/${{ matrix.target }}/release/cvto.exe ]; then
+            cp target/${{ matrix.target }}/release/cvto.exe $directory
+            7z a -r $directory.zip $directory
+          else
+            cp target/${{ matrix.target }}/release/cvto $directory
+            tar cJf $directory.tar.xz $directory
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: cvto-${{ matrix.target }}
+          path: "cvto-${{ matrix.target }}.*"
+          retention-days: 3
+
+      - uses: ncipollo/release-action@v1.16.0
+        if: github.event_name == 'release'
+        with:
+          artifacts: "cvto-${{ matrix.target }}.*"
+          allowUpdates: true
+          omitNameDuringUpdate: true
+          omitBodyDuringUpdate: true
