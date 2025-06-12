@@ -65,8 +65,8 @@ If you need to configure how to serialize and deserialize input and output data,
 
 Key points:
 
-- there was no actual utility for conversing TOML or Java Properties to JSON, YAML and vise versa
-- there was to convenient utility to generate payloads for Protocol Buffers transports testing. There are only specialized tools for gRPC exist but Protocol Buffers may be used in many cases other than gRPC
+- there was no actual utility for converting TOML or Java Properties to JSON, YAML and vise versa
+- there was no convenient utility to generate payloads for Protocol Buffers transports testing. There are only specialized tools for gRPC exist but Protocol Buffers may be used in many cases other than gRPC
 
 Alternatives:
 
