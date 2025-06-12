@@ -1,6 +1,6 @@
 [package]
 name = "cvto"
-description = "Utility for converting text data between structured formats"
+description = "Utility for converting data between structured formats"
 categories = ["command-line-utilities"]
 keywords = ["cli"]
 
@@ -19,6 +19,10 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "=0.9.33"
 toml = { version = "0.8", features = ["preserve_order"] }
 java-properties = "2"
+protobuf = "3"
+protobuf-parse = "3"
+protobuf-json-mapping = "3"
+
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 indexmap = "2"

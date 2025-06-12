@@ -17,7 +17,8 @@ mod transformations;
 - JSON
 - YAML
 - TOML
-- Java Properties"#, long_about = None)]
+- Java Properties
+- Protobuf"#, long_about = None)]
 struct Cli {
     #[arg(help = "Path to input file")]
     input: PathBuf,
@@ -35,7 +36,41 @@ struct Cli {
         value_name = "VALUE",
         help = "Separator to use to determine key and value"
     )]
-    java_properties_ser_kv_separator: Option<String>,
+    java_properties_out_kv_separator: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "FILES",
+        help = "Paths to .proto files that will be used as inputs"
+    )]
+    protobuf_in_input: Option<Vec<String>>,
+
+    #[arg(
+        long,
+        value_name = "DIRS",
+        help = "Paths to directories with .proto files"
+    )]
+    protobuf_in_include: Option<Vec<String>>,
+
+    #[arg(long, value_name = "VALUE", help = "Name of the target message type")]
+    protobuf_in_message: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "FILES",
+        help = "Paths to .proto files that will be used as inputs"
+    )]
+    protobuf_out_input: Option<Vec<String>>,
+
+    #[arg(
+        long,
+        value_name = "DIRS",
+        help = "Paths to directories with .proto files"
+    )]
+    protobuf_out_include: Option<Vec<String>>,
+
+    #[arg(long, value_name = "VALUE", help = "Name of the target message type")]
+    protobuf_out_message: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +79,7 @@ enum Format {
     Yaml,
     Toml,
     JavaProperties,
+    Protobuf,
 }
 
 impl ValueEnum for Format {
@@ -53,6 +89,7 @@ impl ValueEnum for Format {
             Format::Yaml,
             Format::Toml,
             Format::JavaProperties,
+            Format::Protobuf,
         ]
     }
 
@@ -64,6 +101,7 @@ impl ValueEnum for Format {
             Format::JavaProperties => {
                 Some(PossibleValue::new("properties").help("Java Properties"))
             }
+            Format::Protobuf => Some(PossibleValue::new("protobuf").help("Protocol Buffers")),
         }
     }
 }
@@ -77,6 +115,7 @@ fn determine_format(path: &PathBuf) -> Option<Format> {
         "yml" => Some(Format::Yaml),
         "toml" => Some(Format::Toml),
         "properties" => Some(Format::JavaProperties),
+        "protobuf" => Some(Format::Protobuf),
         _ => None,
     }
 }
@@ -117,14 +156,46 @@ fn main() -> Result<(), anyhow::Error> {
         )
     })?;
 
-    let mut java_properties_ser_options = options::java_properties::SerOptions::new();
+    let mut protobuf_in_options = options::protobuf::InOptions::new();
+    match input_format {
+        Format::Json => {}
+        Format::Yaml => {}
+        Format::Toml => {}
+        Format::JavaProperties => {}
+        Format::Protobuf => {
+            if let Some(x) = cli.protobuf_in_include {
+                protobuf_in_options.set(options::protobuf::InOption::Include(x));
+            }
+            if let Some(x) = cli.protobuf_in_input {
+                protobuf_in_options.set(options::protobuf::InOption::Input(x));
+            }
+            if let Some(x) = cli.protobuf_in_message {
+                protobuf_in_options.set(options::protobuf::InOption::Message(x));
+            }
+        }
+    };
+
+    let mut java_properties_out_options = options::java_properties::OutOptions::new();
+    let mut protobuf_out_options = options::protobuf::OutOptions::new();
     match output_format {
         Format::Json => {}
         Format::Yaml => {}
         Format::Toml => {}
         Format::JavaProperties => {
-            if let Some(x) = cli.java_properties_ser_kv_separator {
-                java_properties_ser_options.set(options::java_properties::SerOption::KvSeparator(x));
+            if let Some(x) = cli.java_properties_out_kv_separator {
+                java_properties_out_options
+                    .set(options::java_properties::OutOption::KvSeparator(x));
+            }
+        }
+        Format::Protobuf => {
+            if let Some(x) = cli.protobuf_out_include {
+                protobuf_out_options.set(options::protobuf::OutOption::Include(x));
+            }
+            if let Some(x) = cli.protobuf_out_input {
+                protobuf_out_options.set(options::protobuf::OutOption::Input(x));
+            }
+            if let Some(x) = cli.protobuf_out_message {
+                protobuf_out_options.set(options::protobuf::OutOption::Message(x));
             }
         }
     }
@@ -133,19 +204,32 @@ fn main() -> Result<(), anyhow::Error> {
         (Format::Json, Format::Json) => just_write(input, output)?,
         (Format::Json, Format::Yaml) => json_to_yaml(input, output)?,
         (Format::Json, Format::Toml) => json_to_toml(input, output)?,
-        (Format::Json, Format::JavaProperties) => json_to_properties(input, output, java_properties_ser_options)?,
+        (Format::Json, Format::JavaProperties) => {
+            json_to_properties(input, output, java_properties_out_options)?
+        }
+        (Format::Json, Format::Protobuf) => json_to_protobuf(input, output, protobuf_out_options)?,
         (Format::Yaml, Format::Json) => yaml_to_json(input, output)?,
         (Format::Yaml, Format::Yaml) => just_write(input, output)?,
         (Format::Yaml, Format::Toml) => yaml_to_toml(input, output)?,
-        (Format::Yaml, Format::JavaProperties) => yaml_to_properties(input, output, java_properties_ser_options)?,
+        (Format::Yaml, Format::JavaProperties) => {
+            yaml_to_properties(input, output, java_properties_out_options)?
+        }
+        (Format::Yaml, Format::Protobuf) => todo!(),
         (Format::Toml, Format::Json) => toml_to_json(input, output)?,
         (Format::Toml, Format::Yaml) => toml_to_yaml(input, output)?,
         (Format::Toml, Format::Toml) => just_write(input, output)?,
         (Format::Toml, Format::JavaProperties) => toml_to_properties(input, output)?,
+        (Format::Toml, Format::Protobuf) => todo!(),
         (Format::JavaProperties, Format::Json) => properties_to_json(input, output)?,
         (Format::JavaProperties, Format::Yaml) => properties_to_yaml(input, output)?,
         (Format::JavaProperties, Format::Toml) => properties_to_toml(input, output)?,
         (Format::JavaProperties, Format::JavaProperties) => just_write(input, output)?,
+        (Format::JavaProperties, Format::Protobuf) => todo!(),
+        (Format::Protobuf, Format::Json) => todo!(),
+        (Format::Protobuf, Format::Yaml) => todo!(),
+        (Format::Protobuf, Format::Toml) => protobuf_to_toml(input, output, protobuf_in_options)?,
+        (Format::Protobuf, Format::JavaProperties) => todo!(),
+        (Format::Protobuf, Format::Protobuf) => todo!(),
     };
 
     Ok(())

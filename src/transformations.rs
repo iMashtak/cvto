@@ -2,6 +2,7 @@ use std::io::{Read, Write};
 
 use anyhow::anyhow;
 use indexmap::IndexMap;
+use protobuf::reflect::{FileDescriptor, MessageDescriptor};
 
 use crate::options;
 
@@ -19,6 +20,29 @@ fn write_properties(
     }
     writer.finish()?;
     Ok(())
+}
+
+fn get_protobuf_message_descriptor(
+    input: Vec<String>,
+    include: Vec<String>,
+    message_name: String,
+) -> Result<MessageDescriptor, anyhow::Error> {
+    let mut parser = protobuf_parse::Parser::new();
+    let parser = parser.pure().inputs(input).includes(include);
+    let proto = parser.parse_and_typecheck()?;
+    let mut message_descriptor = None;
+    for file in proto.file_descriptors {
+        let descriptor = FileDescriptor::new_dynamic(file, &[])?;
+        for message in descriptor.messages() {
+            if message.name() == message_name {
+                message_descriptor = Some(message);
+            }
+        }
+    }
+    if let None = message_descriptor {
+        return Err(anyhow!("Defined message is not found in input files"));
+    }
+    Ok(message_descriptor.unwrap())
 }
 
 pub fn just_write(mut input: impl Read, mut output: impl Write) -> Result<(), anyhow::Error> {
@@ -44,7 +68,7 @@ pub fn json_to_toml(input: impl Read, mut output: impl Write) -> Result<(), anyh
 pub fn json_to_properties(
     input: impl Read,
     output: impl Write,
-    ser: options::java_properties::SerOptions,
+    out_options: options::java_properties::OutOptions,
 ) -> Result<(), anyhow::Error> {
     fn traverse(
         properties: &mut IndexMap<String, String>,
@@ -117,8 +141,31 @@ pub fn json_to_properties(
     let json: serde_json::Value = serde_json::from_reader(input)?;
     let mut properties = IndexMap::new();
     traverse(&mut properties, None, &json)?;
-    write_properties(properties, output, ser.get_kv_separator())
+    write_properties(properties, output, out_options.get_kv_separator())
         .map_err(|x| anyhow!("Error while writing Java Properties to file: {}", x))?;
+    Ok(())
+}
+
+pub fn json_to_protobuf(
+    mut input: impl Read,
+    mut output: impl Write,
+    out_options: options::protobuf::OutOptions,
+) -> Result<(), anyhow::Error> {
+    if let None = out_options.get_message() {
+        return Err(anyhow!(
+            "Message is required to be defined for protobuf serialization"
+        ));
+    }
+    let message_name = out_options.get_message().unwrap();
+    let message_descriptor = get_protobuf_message_descriptor(
+        out_options.get_input(),
+        out_options.get_include(),
+        message_name,
+    )?;
+    let mut json = String::new();
+    input.read_to_string(&mut json)?;
+    let message = protobuf_json_mapping::parse_dyn_from_str(&message_descriptor, &json)?;
+    message.write_to_writer_dyn(&mut output)?;
     Ok(())
 }
 
@@ -138,7 +185,7 @@ pub fn yaml_to_toml(input: impl Read, mut output: impl Write) -> Result<(), anyh
 pub fn yaml_to_properties(
     input: impl Read,
     output: impl Write,
-    ser: options::java_properties::SerOptions,
+    out_options: options::java_properties::OutOptions,
 ) -> Result<(), anyhow::Error> {
     fn yaml_to_string(yaml: &serde_yaml::Value) -> Result<String, anyhow::Error> {
         match yaml {
@@ -212,7 +259,7 @@ pub fn yaml_to_properties(
     let yaml: serde_yaml::Value = serde_yaml::from_reader(input)?;
     let mut properties = IndexMap::new();
     traverse(&mut properties, None, &yaml)?;
-    write_properties(properties, output, ser.get_kv_separator())
+    write_properties(properties, output, out_options.get_kv_separator())
         .map_err(|x| anyhow!("Error while writing Java Properties to file: {}", x))?;
     Ok(())
 }
@@ -247,4 +294,28 @@ pub fn properties_to_yaml(input: impl Read, output: impl Write) -> Result<(), an
 
 pub fn properties_to_toml(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
     todo!()
+}
+
+pub fn protobuf_to_toml(
+    mut input: impl Read,
+    mut output: impl Write,
+    in_options: options::protobuf::InOptions,
+) -> Result<(), anyhow::Error> {
+    if let None = in_options.get_message() {
+        return Err(anyhow!(
+            "Message is required to be defined for protobuf deserialization"
+        ));
+    }
+    let message_name = in_options.get_message().unwrap();
+    let message_descriptor = get_protobuf_message_descriptor(
+        in_options.get_input(),
+        in_options.get_include(),
+        message_name,
+    )?;
+    let protobuf = message_descriptor.parse_from_reader(&mut input)?;
+    let json = protobuf_json_mapping::print_to_string(protobuf.as_ref())?;
+    let toml: toml::Value = serde_json::from_str(json.as_str())?;
+    let toml = toml::to_string_pretty(&toml)?;
+    output.write_all(toml.as_bytes())?;
+    Ok(())
 }
