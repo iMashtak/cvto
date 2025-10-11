@@ -45,10 +45,11 @@ fn get_protobuf_message_descriptor(
     Ok(message_descriptor.unwrap())
 }
 
-pub fn just_write(mut input: impl Read, mut output: impl Write) -> Result<(), anyhow::Error> {
-    let mut buf = Vec::new();
-    input.read_to_end(&mut buf)?;
-    output.write_all(&buf)?;
+// --- JSON ---
+
+pub fn json_to_json(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
+    let json: serde_json::Value = serde_json::from_reader(input)?;
+    serde_json::to_writer_pretty(output, &json)?;
     Ok(())
 }
 
@@ -169,9 +170,17 @@ pub fn json_to_protobuf(
     Ok(())
 }
 
+// --- YAML ---
+
 pub fn yaml_to_json(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
     let json: serde_json::Value = serde_yaml::from_reader(input)?;
     serde_json::to_writer_pretty(output, &json)?;
+    Ok(())
+}
+
+pub fn yaml_to_yaml(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
+    let yaml: serde_yaml::Value = serde_yaml::from_reader(input)?;
+    serde_yaml::to_writer(output, &yaml)?;
     Ok(())
 }
 
@@ -189,7 +198,7 @@ pub fn yaml_to_properties(
 ) -> Result<(), anyhow::Error> {
     fn yaml_to_string(yaml: &serde_yaml::Value) -> Result<String, anyhow::Error> {
         match yaml {
-            serde_yaml::Value::Null => Err(anyhow!("Unexpected null value")),
+            serde_yaml::Value::Null => Ok("".to_string()),
             serde_yaml::Value::Bool(x) => Ok(x.to_string()),
             serde_yaml::Value::Number(x) => Ok(x.to_string()),
             serde_yaml::Value::String(x) => Ok(x.to_string()),
@@ -264,6 +273,8 @@ pub fn yaml_to_properties(
     Ok(())
 }
 
+// --- TOML ---
+
 pub fn toml_to_json(mut input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
     let mut toml = String::new();
     input.read_to_string(&mut toml)?;
@@ -280,9 +291,20 @@ pub fn toml_to_yaml(mut input: impl Read, output: impl Write) -> Result<(), anyh
     Ok(())
 }
 
+pub fn toml_to_toml(mut input: impl Read, mut output: impl Write) -> Result<(), anyhow::Error> {
+    let mut toml = String::new();
+    input.read_to_string(&mut toml)?;
+    let toml: toml::Value = toml::from_str(toml.as_str())?;
+    let toml = toml::to_string_pretty(&toml)?;
+    output.write_all(toml.as_bytes())?;
+    Ok(())
+}
+
 pub fn toml_to_properties(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
     todo!()
 }
+
+// --- Java Properties ---
 
 pub fn properties_to_json(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
     todo!()
@@ -294,6 +316,50 @@ pub fn properties_to_yaml(input: impl Read, output: impl Write) -> Result<(), an
 
 pub fn properties_to_toml(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
     todo!()
+}
+
+pub fn properties_to_properties(
+    input: impl Read,
+    output: impl Write,
+    out_options: options::java_properties::OutOptions,
+) -> Result<(), anyhow::Error> {
+    let mut result = IndexMap::new();
+    let properties = java_properties::PropertiesIter::new(input);
+    for property in properties {
+        let property = property?;
+        let property = property.consume_content();
+        match property {
+            java_properties::LineContent::Comment(_) => continue,
+            java_properties::LineContent::KVPair(key, value) => result.insert(key, value),
+        };
+    }
+    write_properties(result, output, out_options.get_kv_separator())?;
+    Ok(())
+}
+
+// --- Protobuf ---
+
+pub fn protobuf_to_json(
+    mut input: impl Read,
+    output: impl Write,
+    in_options: options::protobuf::InOptions,
+) -> Result<(), anyhow::Error> {
+    if let None = in_options.get_message() {
+        return Err(anyhow!(
+            "Message is required to be defined for protobuf deserialization"
+        ));
+    }
+    let message_name = in_options.get_message().unwrap();
+    let message_descriptor = get_protobuf_message_descriptor(
+        in_options.get_input(),
+        in_options.get_include(),
+        message_name,
+    )?;
+    let protobuf = message_descriptor.parse_from_reader(&mut input)?;
+    let json = protobuf_json_mapping::print_to_string(protobuf.as_ref())?;
+    let json: serde_json::Value = serde_json::from_str(json.as_str())?;
+    serde_json::to_writer_pretty(output, &json)?;
+    Ok(())
 }
 
 pub fn protobuf_to_toml(
@@ -317,5 +383,17 @@ pub fn protobuf_to_toml(
     let toml: toml::Value = serde_json::from_str(json.as_str())?;
     let toml = toml::to_string_pretty(&toml)?;
     output.write_all(toml.as_bytes())?;
+    Ok(())
+}
+
+pub fn protobuf_to_protobuf(
+    mut input: impl Read,
+    mut output: impl Write,
+    _in_options: options::protobuf::InOptions,
+    _out_options: options::protobuf::OutOptions,
+) -> Result<(), anyhow::Error> {
+    let mut buf = Vec::new();
+    input.read_to_end(&mut buf)?;
+    output.write_all(&buf)?;
     Ok(())
 }

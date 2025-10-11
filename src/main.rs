@@ -1,4 +1,8 @@
-use std::{fs::File, path::PathBuf};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    path::PathBuf,
+};
 
 use anyhow::anyhow;
 use clap::{Parser, ValueEnum, builder::PossibleValue};
@@ -21,9 +25,9 @@ mod transformations;
 - Protobuf"#, long_about = None)]
 struct Cli {
     #[arg(help = "Path to input file")]
-    input: PathBuf,
+    input: Option<PathBuf>,
     #[arg(help = "Path to output file")]
-    output: PathBuf,
+    output: Option<PathBuf>,
 
     #[arg(short = 'i', help = "Format of input file", display_order = 0)]
     input_format: Option<Format>,
@@ -136,25 +140,59 @@ fn get_format(path: &PathBuf, format: Option<Format>) -> Result<Format, anyhow::
     }
 }
 
+fn get_input_with_format() -> Result<(Box<dyn Read>, Format), anyhow::Error> {
+    let cli = Cli::parse();
+    if let Some(input) = cli.input {
+        let input_format = get_format(&input, cli.input_format)?;
+        let input = File::open(input.as_path()).map_err(|x| {
+            anyhow!(
+                "Error while opening file {}: {}",
+                input.to_string_lossy(),
+                x
+            )
+        })?;
+        Ok((Box::new(input), input_format))
+    } else {
+        let handle = std::io::stdin().lock();
+        if let None = cli.input_format {
+            return Err(anyhow!(
+                "Format cannot be determined automatically for stdin, provide `-i` option"
+            ));
+        }
+        let input_format = cli.input_format.unwrap();
+        Ok((Box::new(handle), input_format))
+    }
+}
+
+fn get_output_with_format() -> Result<(Box<dyn Write>, Format), anyhow::Error> {
+    let cli = Cli::parse();
+    if let Some(output) = cli.output {
+        let output_format = get_format(&output, cli.input_format)?;
+        let output = File::create(output.as_path()).map_err(|x| {
+            anyhow!(
+                "Error while creating file {}: {}",
+                output.to_string_lossy(),
+                x
+            )
+        })?;
+        Ok((Box::new(output), output_format))
+    } else {
+        let handle = std::io::stdout();
+        if let None = cli.output_format {
+            return Err(anyhow!(
+                "Format cannot be determined automatically for stdout, provide `-o` option"
+            ));
+        }
+        let output_format = cli.output_format.unwrap();
+        Ok((Box::new(handle), output_format))
+    }
+}
+
 fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
-    let input_format = get_format(&cli.input, cli.input_format)?;
-    let output_format = get_format(&cli.output, cli.output_format)?;
-    let input = File::open(cli.input.as_path()).map_err(|x| {
-        anyhow!(
-            "Error while opening file {}: {}",
-            cli.input.to_string_lossy(),
-            x
-        )
-    })?;
-    let output = File::create(cli.output.as_path()).map_err(|x| {
-        anyhow!(
-            "Error while creating file {}: {}",
-            cli.input.to_string_lossy(),
-            x
-        )
-    })?;
+    let (input, input_format) = get_input_with_format()?;
+    let (output, output_format) = get_output_with_format()?;
 
     let mut protobuf_in_options = options::protobuf::InOptions::new();
     match input_format {
@@ -201,7 +239,7 @@ fn main() -> Result<(), anyhow::Error> {
     }
 
     match (input_format, output_format) {
-        (Format::Json, Format::Json) => just_write(input, output)?,
+        (Format::Json, Format::Json) => json_to_json(input, output)?,
         (Format::Json, Format::Yaml) => json_to_yaml(input, output)?,
         (Format::Json, Format::Toml) => json_to_toml(input, output)?,
         (Format::Json, Format::JavaProperties) => {
@@ -209,7 +247,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
         (Format::Json, Format::Protobuf) => json_to_protobuf(input, output, protobuf_out_options)?,
         (Format::Yaml, Format::Json) => yaml_to_json(input, output)?,
-        (Format::Yaml, Format::Yaml) => just_write(input, output)?,
+        (Format::Yaml, Format::Yaml) => yaml_to_yaml(input, output)?,
         (Format::Yaml, Format::Toml) => yaml_to_toml(input, output)?,
         (Format::Yaml, Format::JavaProperties) => {
             yaml_to_properties(input, output, java_properties_out_options)?
@@ -217,19 +255,23 @@ fn main() -> Result<(), anyhow::Error> {
         (Format::Yaml, Format::Protobuf) => todo!(),
         (Format::Toml, Format::Json) => toml_to_json(input, output)?,
         (Format::Toml, Format::Yaml) => toml_to_yaml(input, output)?,
-        (Format::Toml, Format::Toml) => just_write(input, output)?,
+        (Format::Toml, Format::Toml) => toml_to_toml(input, output)?,
         (Format::Toml, Format::JavaProperties) => toml_to_properties(input, output)?,
         (Format::Toml, Format::Protobuf) => todo!(),
         (Format::JavaProperties, Format::Json) => properties_to_json(input, output)?,
         (Format::JavaProperties, Format::Yaml) => properties_to_yaml(input, output)?,
         (Format::JavaProperties, Format::Toml) => properties_to_toml(input, output)?,
-        (Format::JavaProperties, Format::JavaProperties) => just_write(input, output)?,
+        (Format::JavaProperties, Format::JavaProperties) => {
+            properties_to_properties(input, output, java_properties_out_options)?
+        }
         (Format::JavaProperties, Format::Protobuf) => todo!(),
-        (Format::Protobuf, Format::Json) => todo!(),
+        (Format::Protobuf, Format::Json) => protobuf_to_json(input, output, protobuf_in_options)?,
         (Format::Protobuf, Format::Yaml) => todo!(),
         (Format::Protobuf, Format::Toml) => protobuf_to_toml(input, output, protobuf_in_options)?,
         (Format::Protobuf, Format::JavaProperties) => todo!(),
-        (Format::Protobuf, Format::Protobuf) => todo!(),
+        (Format::Protobuf, Format::Protobuf) => {
+            protobuf_to_protobuf(input, output, protobuf_in_options, protobuf_out_options)?
+        }
     };
 
     Ok(())
