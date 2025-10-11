@@ -56,6 +56,9 @@ If you need to configure how to serialize and deserialize input and output data,
 
 **Java Properties**
 
+- `properties-in-mode`: Processing mode. Possible values:
+    - `flat`: interprets properties as pure key-value passing it directly to other format representation
+    - `nested`: interprets properties as nested map transforming them into structured view before passing to other format representation
 - `properties-out-kv-separator`: Separator to use to determine key and value
 
 **Protobuf**
