@@ -35,6 +35,9 @@ struct Cli {
     #[arg(long = "out-format", help = "Format of output file", display_order = 3)]
     output_format: Option<Format>,
 
+    #[arg(long, value_name = "VALUE", help = "Processing mode")]
+    properties_in_mode: Option<options::java_properties::Mode>,
+
     #[arg(
         long,
         value_name = "VALUE",
@@ -194,12 +197,17 @@ fn main() -> Result<(), anyhow::Error> {
     let (input, input_format) = get_input_with_format()?;
     let (output, output_format) = get_output_with_format()?;
 
+    let mut java_properties_in_options = options::java_properties::InOptions::new();
     let mut protobuf_in_options = options::protobuf::InOptions::new();
     match input_format {
         Format::Json => {}
         Format::Yaml => {}
         Format::Toml => {}
-        Format::JavaProperties => {}
+        Format::JavaProperties => {
+            if let Some(x) = cli.properties_in_mode {
+                java_properties_in_options.set(options::java_properties::InOption::Mode(x));
+            }
+        }
         Format::Protobuf => {
             if let Some(x) = cli.protobuf_in_include {
                 protobuf_in_options.set(options::protobuf::InOption::Include(x));
@@ -252,23 +260,41 @@ fn main() -> Result<(), anyhow::Error> {
         (Format::Yaml, Format::JavaProperties) => {
             yaml_to_properties(input, output, java_properties_out_options)?
         }
-        (Format::Yaml, Format::Protobuf) => todo!(),
+        (Format::Yaml, Format::Protobuf) => yaml_to_protobuf(input, output, protobuf_out_options)?,
         (Format::Toml, Format::Json) => toml_to_json(input, output)?,
         (Format::Toml, Format::Yaml) => toml_to_yaml(input, output)?,
         (Format::Toml, Format::Toml) => toml_to_toml(input, output)?,
-        (Format::Toml, Format::JavaProperties) => toml_to_properties(input, output)?,
-        (Format::Toml, Format::Protobuf) => todo!(),
-        (Format::JavaProperties, Format::Json) => properties_to_json(input, output)?,
-        (Format::JavaProperties, Format::Yaml) => properties_to_yaml(input, output)?,
-        (Format::JavaProperties, Format::Toml) => properties_to_toml(input, output)?,
+        (Format::Toml, Format::JavaProperties) => {
+            toml_to_properties(input, output, java_properties_out_options)?
+        }
+        (Format::Toml, Format::Protobuf) => toml_to_protobuf(input, output, protobuf_out_options)?,
+        (Format::JavaProperties, Format::Json) => {
+            properties_to_json(input, output, java_properties_in_options)?
+        }
+        (Format::JavaProperties, Format::Yaml) => {
+            properties_to_yaml(input, output, java_properties_in_options)?
+        }
+        (Format::JavaProperties, Format::Toml) => {
+            properties_to_toml(input, output, java_properties_in_options)?
+        }
         (Format::JavaProperties, Format::JavaProperties) => {
             properties_to_properties(input, output, java_properties_out_options)?
         }
-        (Format::JavaProperties, Format::Protobuf) => todo!(),
+        (Format::JavaProperties, Format::Protobuf) => properties_to_protobuf(
+            input,
+            output,
+            java_properties_in_options,
+            protobuf_out_options,
+        )?,
         (Format::Protobuf, Format::Json) => protobuf_to_json(input, output, protobuf_in_options)?,
-        (Format::Protobuf, Format::Yaml) => todo!(),
+        (Format::Protobuf, Format::Yaml) => protobuf_to_yaml(input, output, protobuf_in_options)?,
         (Format::Protobuf, Format::Toml) => protobuf_to_toml(input, output, protobuf_in_options)?,
-        (Format::Protobuf, Format::JavaProperties) => todo!(),
+        (Format::Protobuf, Format::JavaProperties) => protobuf_to_properties(
+            input,
+            output,
+            protobuf_in_options,
+            java_properties_out_options,
+        )?,
         (Format::Protobuf, Format::Protobuf) => {
             protobuf_to_protobuf(input, output, protobuf_in_options, protobuf_out_options)?
         }

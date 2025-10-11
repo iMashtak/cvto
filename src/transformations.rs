@@ -1,10 +1,24 @@
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 
 use anyhow::anyhow;
 use indexmap::IndexMap;
 use protobuf::reflect::{FileDescriptor, MessageDescriptor};
 
 use crate::options;
+
+fn read_properties(input: impl Read) -> Result<IndexMap<String, String>, anyhow::Error> {
+    let mut result = IndexMap::new();
+    let properties = java_properties::PropertiesIter::new(input);
+    for property in properties {
+        let property = property?;
+        let property = property.consume_content();
+        match property {
+            java_properties::LineContent::Comment(_) => continue,
+            java_properties::LineContent::KVPair(key, value) => result.insert(key, value),
+        };
+    }
+    Ok(result)
+}
 
 fn write_properties(
     properties: IndexMap<String, String>,
@@ -213,7 +227,13 @@ pub fn yaml_to_properties(
         yaml: &serde_yaml::Value,
     ) -> Result<(), anyhow::Error> {
         match yaml {
-            serde_yaml::Value::Null => {}
+            serde_yaml::Value::Null => {
+                if let Some(key) = key {
+                    properties.insert(key.to_string(), "".to_string());
+                } else {
+                    return Err(anyhow!("Expected to have key defined but have raw null"));
+                }
+            }
             serde_yaml::Value::Bool(x) => {
                 if let Some(key) = key {
                     properties.insert(key.to_string(), x.to_string());
@@ -273,6 +293,18 @@ pub fn yaml_to_properties(
     Ok(())
 }
 
+pub fn yaml_to_protobuf(
+    input: impl Read,
+    output: impl Write,
+    out_options: options::protobuf::OutOptions,
+) -> Result<(), anyhow::Error> {
+    let mut mid = Vec::new();
+    yaml_to_json(input, &mut mid)?;
+    let mid = Cursor::new(mid);
+    json_to_protobuf(mid, output, out_options)?;
+    Ok(())
+}
+
 // --- TOML ---
 
 pub fn toml_to_json(mut input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
@@ -300,22 +332,112 @@ pub fn toml_to_toml(mut input: impl Read, mut output: impl Write) -> Result<(), 
     Ok(())
 }
 
-pub fn toml_to_properties(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
-    todo!()
+pub fn toml_to_properties(
+    input: impl Read,
+    output: impl Write,
+    out_options: options::java_properties::OutOptions,
+) -> Result<(), anyhow::Error> {
+    let mut mid = Vec::new();
+    toml_to_json(input, &mut mid)?;
+    let mid = Cursor::new(mid);
+    json_to_properties(mid, output, out_options)?;
+    Ok(())
+}
+
+pub fn toml_to_protobuf(
+    input: impl Read,
+    output: impl Write,
+    out_options: options::protobuf::OutOptions,
+) -> Result<(), anyhow::Error> {
+    let mut mid = Vec::new();
+    toml_to_json(input, &mut mid)?;
+    let mid = Cursor::new(mid);
+    json_to_protobuf(mid, output, out_options)?;
+    Ok(())
 }
 
 // --- Java Properties ---
 
-pub fn properties_to_json(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
-    todo!()
+pub fn properties_to_json(
+    input: impl Read,
+    output: impl Write,
+    in_options: options::java_properties::InOptions,
+) -> Result<(), anyhow::Error> {
+    let mode = in_options
+        .get_mode()
+        .unwrap_or(options::java_properties::Mode::Flat);
+    match mode {
+        options::java_properties::Mode::Flat => {
+            let properties = read_properties(input)?;
+            let mut map = serde_json::Map::new();
+            for (key, value) in properties {
+                if value == "" {
+                    map.insert(key, serde_json::Value::Null);
+                } else {
+                    map.insert(key, serde_json::Value::String(value));
+                }
+            }
+            serde_json::to_writer_pretty(output, &serde_json::Value::Object(map))?;
+        }
+        options::java_properties::Mode::Nested => {
+            let properties = read_properties(input)?;
+            let mut map = serde_json::Map::new();
+            for (key, value) in properties {
+                let mut current = &mut map;
+                let parts = key.split(".").collect::<Vec<&str>>();
+                for (i, part) in parts.iter().enumerate() {
+                    if i == parts.len() - 1 {
+                        if value.as_str() == "" {
+                            current.insert(part.to_string(), serde_json::Value::Null);
+                        } else {
+                            current
+                                .insert(part.to_string(), serde_json::Value::String(value.clone()));
+                        };
+                    } else {
+                        if current.contains_key(*part) {
+                            current = match current.get_mut(*part).unwrap() {
+                                serde_json::Value::Object(map) => map,
+                                _ => return Err(anyhow!("Overlapping key detected: {}", key)),
+                            };
+                        } else {
+                            let new = serde_json::Map::new();
+                            current.insert(part.to_string(), serde_json::Value::Object(new));
+                            current = match current.get_mut(*part).unwrap() {
+                                serde_json::Value::Object(map) => map,
+                                _ => unreachable!(),
+                            };
+                        }
+                    }
+                }
+            }
+            serde_json::to_writer_pretty(output, &serde_json::Value::Object(map))?;
+        }
+    };
+    Ok(())
 }
 
-pub fn properties_to_yaml(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
-    todo!()
+pub fn properties_to_yaml(
+    input: impl Read,
+    output: impl Write,
+    in_options: options::java_properties::InOptions,
+) -> Result<(), anyhow::Error> {
+    let mut mid = Vec::new();
+    properties_to_json(input, &mut mid, in_options)?;
+    let mid = Cursor::new(mid);
+    json_to_yaml(mid, output)?;
+    Ok(())
 }
 
-pub fn properties_to_toml(input: impl Read, output: impl Write) -> Result<(), anyhow::Error> {
-    todo!()
+pub fn properties_to_toml(
+    input: impl Read,
+    output: impl Write,
+    in_options: options::java_properties::InOptions,
+) -> Result<(), anyhow::Error> {
+    let mut mid = Vec::new();
+    properties_to_json(input, &mut mid, in_options)?;
+    let mid = Cursor::new(mid);
+    json_to_toml(mid, output)?;
+    Ok(())
 }
 
 pub fn properties_to_properties(
@@ -323,17 +445,21 @@ pub fn properties_to_properties(
     output: impl Write,
     out_options: options::java_properties::OutOptions,
 ) -> Result<(), anyhow::Error> {
-    let mut result = IndexMap::new();
-    let properties = java_properties::PropertiesIter::new(input);
-    for property in properties {
-        let property = property?;
-        let property = property.consume_content();
-        match property {
-            java_properties::LineContent::Comment(_) => continue,
-            java_properties::LineContent::KVPair(key, value) => result.insert(key, value),
-        };
-    }
-    write_properties(result, output, out_options.get_kv_separator())?;
+    let properties = read_properties(input)?;
+    write_properties(properties, output, out_options.get_kv_separator())?;
+    Ok(())
+}
+
+pub fn properties_to_protobuf(
+    input: impl Read,
+    output: impl Write,
+    in_options: options::java_properties::InOptions,
+    out_options: options::protobuf::OutOptions,
+) -> Result<(), anyhow::Error> {
+    let mut mid = Vec::new();
+    properties_to_json(input, &mut mid, in_options)?;
+    let mid = Cursor::new(mid);
+    json_to_protobuf(mid, output, out_options)?;
     Ok(())
 }
 
@@ -362,6 +488,29 @@ pub fn protobuf_to_json(
     Ok(())
 }
 
+pub fn protobuf_to_yaml(
+    mut input: impl Read,
+    output: impl Write,
+    in_options: options::protobuf::InOptions,
+) -> Result<(), anyhow::Error> {
+    if let None = in_options.get_message() {
+        return Err(anyhow!(
+            "Message is required to be defined for protobuf deserialization"
+        ));
+    }
+    let message_name = in_options.get_message().unwrap();
+    let message_descriptor = get_protobuf_message_descriptor(
+        in_options.get_input(),
+        in_options.get_include(),
+        message_name,
+    )?;
+    let protobuf = message_descriptor.parse_from_reader(&mut input)?;
+    let json = protobuf_json_mapping::print_to_string(protobuf.as_ref())?;
+    let yaml: serde_yaml::Value = serde_json::from_str(json.as_str())?;
+    serde_yaml::to_writer(output, &yaml)?;
+    Ok(())
+}
+
 pub fn protobuf_to_toml(
     mut input: impl Read,
     mut output: impl Write,
@@ -383,6 +532,19 @@ pub fn protobuf_to_toml(
     let toml: toml::Value = serde_json::from_str(json.as_str())?;
     let toml = toml::to_string_pretty(&toml)?;
     output.write_all(toml.as_bytes())?;
+    Ok(())
+}
+
+pub fn protobuf_to_properties(
+    input: impl Read,
+    output: impl Write,
+    in_options: options::protobuf::InOptions,
+    out_options: options::java_properties::OutOptions,
+) -> Result<(), anyhow::Error> {
+    let mut mid = Vec::new();
+    protobuf_to_json(input, &mut mid, in_options)?;
+    let mid = Cursor::new(mid);
+    json_to_properties(mid, output, out_options)?;
     Ok(())
 }
 

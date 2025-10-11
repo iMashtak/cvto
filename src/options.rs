@@ -5,9 +5,12 @@ pub trait Options<Opt> {
 pub mod java_properties {
     use std::collections::HashMap;
 
+    use clap::{ValueEnum, builder::PossibleValue};
+
     use crate::options::Options;
 
     const KV_SEPARATOR: &str = "kv_separator";
+    const MODE: &str = "mode";
 
     #[derive(Debug)]
     pub enum OutOption {
@@ -36,6 +39,57 @@ pub mod java_properties {
         fn set(&mut self, option: OutOption) {
             let name = match option {
                 OutOption::KvSeparator(_) => KV_SEPARATOR,
+            };
+            self.inner.insert(name.to_string(), option);
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum InOption {
+        Mode(Mode),
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum Mode {
+        Flat,
+        Nested,
+    }
+
+    impl ValueEnum for Mode {
+        fn value_variants<'a>() -> &'a [Self] {
+            &[Mode::Flat, Mode::Nested]
+        }
+
+        fn to_possible_value(&self) -> Option<PossibleValue> {
+            match self {
+                Mode::Flat => Some(PossibleValue::new("flat").help("interprets properties as pure key-value passing it directly to other format representation")),
+                Mode::Nested => Some(PossibleValue::new("nested").help("interprets properties as nested map transforming them into structured view before passing to other format representation")),
+            }
+        }
+    }
+
+    pub struct InOptions {
+        inner: HashMap<String, InOption>,
+    }
+
+    impl InOptions {
+        pub fn new() -> Self {
+            Self {
+                inner: HashMap::new(),
+            }
+        }
+
+        pub fn get_mode(&self) -> Option<Mode> {
+            self.inner.get(MODE).map(|x| match x {
+                InOption::Mode(x) => x.clone(),
+            })
+        }
+    }
+
+    impl Options<InOption> for InOptions {
+        fn set(&mut self, option: InOption) {
+            let name = match option {
+                InOption::Mode(_) => MODE,
             };
             self.inner.insert(name.to_string(), option);
         }
