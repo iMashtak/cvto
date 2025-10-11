@@ -16,7 +16,8 @@ readme = "README.md"
 
 exclude = [
     ".github",
-    "Taskfile.yml"
+    "Taskfile.yml",
+    "tests"
 ]
 
 [dependencies]

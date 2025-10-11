@@ -14,3 +14,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: dtolnay/rust-toolchain@1.87.0
       - run: cargo test --verbose --no-fail-fast
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: pip install -U pytest
+      - run: |
+          cargo build
+          cd tests
+          pytest
