@@ -67,7 +67,7 @@ jobs:
         run: |
           directory=cvto-${{ matrix.target }}
           mkdir $directory
-          cp README.md LICENSE NOTICE $directory
+          cp README.md LICENSE $directory
           if [ -f target/${{ matrix.target }}/release/cvto.exe ]; then
             cp target/${{ matrix.target }}/release/cvto.exe $directory
             7z a -r $directory.zip $directory
