@@ -17,21 +17,27 @@ You can download pre-built binaries from releases page. Download archive and pla
 Simple conversion with default options requires just the following call:
 
 ```sh
-cvto input.json output.yaml
+cvto -i input.json -o output.yaml
 ```
 
-`cvto` automatically detects formats based on file extension. If required it may be set explicitly by passing `-i` or `-o` options:
+`cvto` automatically detects formats based on file extension. If required it may be set explicitly by passing `--in-format` or `--out-format` options:
 
 ```sh
-cvto -i json -o yaml file_with_no_extension output.conf
+cvto -i file_with_no_extension -o output.conf --in-format json --out-format yaml
 ```
 
-Possible values for `-i` and `-o` are:
+Possible values for `--in-format` and `--out-format` are:
 - `json`
 - `yaml`
 - `toml`
 - `properties`
 - `protobuf`
+
+You can use stdin as input and stdout as output by not passing `-i` or (and) `-o` options, but you need then set `--in-format` or (and) `--out-format` options:
+
+```sh
+cat input.json | cvto --in-format json --out-format yaml > output.yaml
+```
 
 If you need to configure how to serialize and deserialize input and output data, you can provide additional options which have the following naming: `{format}-{type}-{name}`, where:
 
@@ -39,18 +45,18 @@ If you need to configure how to serialize and deserialize input and output data,
     - `json`
     - `yaml`
     - `toml`
-    - `java-properties`
+    - `properties`
     - `protobuf`
 - `type` may be:
-    - `in` which means deserialization (how to parse input file)
-    - `out` which means serialization (how to write to output file)
+    - `in` which means deserialization (how to parse input)
+    - `out` which means serialization (how to write to output)
 - `name` is actual name of option
 
 ### Options Reference
 
 **Java Properties**
 
-- `java-properties-out-kv-separator`: Separator to use to determine key and value
+- `properties-out-kv-separator`: Separator to use to determine key and value
 
 **Protobuf**
 
@@ -61,13 +67,6 @@ If you need to configure how to serialize and deserialize input and output data,
 - `protobuf-out-include`: Paths to directories with .proto files
 - `protobuf-out-message`: Name of the target message type
 
-## Motivation
-
-Key points:
-
-- there was no actual utility for converting TOML or Java Properties to JSON, YAML and vise versa
-- there was no convenient utility to generate payloads for Protocol Buffers transports testing. There are only specialized tools for gRPC exist but Protocol Buffers may be used in many cases other than gRPC
-
-Alternatives:
+## Alternatives
 
 - [`yj`](https://github.com/sclevine/yj) - provides support for JSON, YAML, TOML and HCL. Not maintained in last years.

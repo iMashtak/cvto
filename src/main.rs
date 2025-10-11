@@ -24,15 +24,15 @@ mod transformations;
 - Java Properties
 - Protobuf"#, long_about = None)]
 struct Cli {
-    #[arg(help = "Path to input file")]
+    #[arg(short = 'i', help = "Path to input file", display_order = 0)]
     input: Option<PathBuf>,
-    #[arg(help = "Path to output file")]
+    #[arg(short = 'o', help = "Path to output file", display_order = 1)]
     output: Option<PathBuf>,
 
-    #[arg(short = 'i', help = "Format of input file", display_order = 0)]
+    #[arg(long = "in-format", help = "Format of input file", display_order = 2)]
     input_format: Option<Format>,
 
-    #[arg(short = 'o', help = "Format of output file", display_order = 1)]
+    #[arg(long = "out-format", help = "Format of output file", display_order = 3)]
     output_format: Option<Format>,
 
     #[arg(
@@ -40,7 +40,7 @@ struct Cli {
         value_name = "VALUE",
         help = "Separator to use to determine key and value"
     )]
-    java_properties_out_kv_separator: Option<String>,
+    properties_out_kv_separator: Option<String>,
 
     #[arg(
         long,
@@ -220,7 +220,7 @@ fn main() -> Result<(), anyhow::Error> {
         Format::Yaml => {}
         Format::Toml => {}
         Format::JavaProperties => {
-            if let Some(x) = cli.java_properties_out_kv_separator {
+            if let Some(x) = cli.properties_out_kv_separator {
                 java_properties_out_options
                     .set(options::java_properties::OutOption::KvSeparator(x));
             }
