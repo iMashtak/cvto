@@ -73,3 +73,4 @@ If you need to configure how to serialize and deserialize input and output data,
 ## Alternatives
 
 - [`yj`](https://github.com/sclevine/yj) - provides support for JSON, YAML, TOML and HCL. Not maintained in last years.
+- [`convfmt`](https://github.com/oriontvv/convfmt) - provides support for various formats including JSON, YAML, TOML, XML, CSV.
